@@ -170,10 +170,44 @@ function readJSON(filename::String)
     # -----------------------------------------------------
     
     # -----------------------------------------------------
+    # Direct Solver
+    # [K] 64 bits * m_nGDL * m_nGDL 
+    function directsolver(dofMap::Array{UInt64,1}, RHS::Array{Float64,1}, RHS_2::Array{Float64,1}, m_k::Array{Float64,3}, m_nGDL::Int, m_nx::Int, m_ny::Int, m_numElem::Int, m_matID::Array{UInt64,1} ,m_materials_I::Array{UInt16,1})
+        
+    println("----")
+    println("Direct Solver")
+        
+    K = spzeros(m_nGDL,m_nGDL);
+    edof1 = 4; edof2 = 4;
+    for e=1:m_numElem
+        c = floor(UInt64, ((e-1)/m_ny) + 1);
+        k = m_k[:,:,m_materials_I[m_matID[e],1],1];
+    
+        N1 = e + c;
+        N2 = e + c + 1 + m_ny;
+        N3 = e + c + m_ny;
+        N4 = e + c - 1;
+        pElemDOFNum = [dofMap[N1] dofMap[N2] dofMap[N3] dofMap[N4]];
+    
+        for i=1:edof1
+            for j=1:edof2
+                K[pElemDOFNum[i],pElemDOFNum[j]] += k[i,j];
+            end
+        end
+    end
+    
+    Tx = K\RHS;
+    Ty = K\RHS_2;
+    
+    return Tx, Ty
+    end
+    # -----------------------------------------------------
+    
+    # -----------------------------------------------------
     # Compute RHS
     # c_RHS Boundary = 0 || Domain = 1
     # axis x = 0 || y = 1
-    function computeRHS(dofMap::Array{UInt64,1}, c_RHS::Int, axis::Int, m_k::Array{Float64,3}, m_nGDL::Int, m_nx::Int, m_ny::Int, m_numElem::Int, m_matID::Array{UInt64,1} ,m_materials_I::Array{UInt16,1})
+    function computeRHS(dofMap::Array{UInt64,1}, c_RHS::Int, axis::Int, m_k::Array{Float64,3}, m_B::Array{Float64,3}, m_nGDL::Int, m_nx::Int, m_ny::Int, m_numElem::Int, m_matID::Array{UInt64,1} ,m_materials_I::Array{UInt16,1})
     
     println("----")
     println("Compute RHS")
@@ -192,11 +226,11 @@ function readJSON(filename::String)
                 N2 = r + c*m_ny + c + 1;
                 N3 = r + c*m_ny + c;
                 N4 = r + (c-1)*m_ny + c - 1;
-    
-                m_RHS[dofMap[N1]] += - (k[1,2] + k[1,3])*deltaT;
-                m_RHS[dofMap[N2]] += - (k[2,2] + k[2,3])*deltaT;
-                m_RHS[dofMap[N3]] += - (k[3,2] + k[3,3])*deltaT;
-                m_RHS[dofMap[N4]] += - (k[4,2] + k[4,3])*deltaT;
+                
+                m_RHS[dofMap[N1]] -= (k[1,2] + k[1,3])*deltaT;
+                m_RHS[dofMap[N2]] -= (k[2,2] + k[2,3])*deltaT;
+                m_RHS[dofMap[N3]] -= (k[3,2] + k[3,3])*deltaT;
+                m_RHS[dofMap[N4]] -= (k[4,2] + k[4,3])*deltaT;
             end
     
         elseif axis == 1
@@ -211,10 +245,10 @@ function readJSON(filename::String)
                 N3 = r + c*m_ny + c;
                 N4 = r + (c-1)*m_ny + c - 1;
     
-                m_RHS[dofMap[N1]] += - (k[1,3] + k[1,4])*deltaT;
-                m_RHS[dofMap[N2]] += - (k[2,3] + k[2,4])*deltaT;
-                m_RHS[dofMap[N3]] += - (k[3,3] + k[3,4])*deltaT;
-                m_RHS[dofMap[N4]] += - (k[4,3] + k[4,4])*deltaT;
+                m_RHS[dofMap[N1]] -= (k[1,3] + k[1,4])*deltaT;
+                m_RHS[dofMap[N2]] -= (k[2,3] + k[2,4])*deltaT;
+                m_RHS[dofMap[N3]] -= (k[3,3] + k[3,4])*deltaT;
+                m_RHS[dofMap[N4]] -= (k[4,3] + k[4,4])*deltaT;
             end
     
         end
@@ -230,15 +264,15 @@ function readJSON(filename::String)
             N4 = e + c - 1;
     
             if axis == 0
-                m_RHS[m_dofMap[N1]] += b[1,1];
-                m_RHS[m_dofMap[N2]] += b[1,2];
-                m_RHS[m_dofMap[N3]] += b[1,3];
-                m_RHS[m_dofMap[N4]] += b[1,4];
+                m_RHS[dofMap[N1]] += b[1,1];
+                m_RHS[dofMap[N2]] += b[1,2];
+                m_RHS[dofMap[N3]] += b[1,3];
+                m_RHS[dofMap[N4]] += b[1,4];
             elseif axis == 1
-                m_RHS[m_dofMap[N1]] += b[2,1];
-                m_RHS[m_dofMap[N2]] += b[2,2];
-                m_RHS[m_dofMap[N3]] += b[2,3];
-                m_RHS[m_dofMap[N4]] += b[2,4];
+                m_RHS[dofMap[N1]] += b[2,1];
+                m_RHS[dofMap[N2]] += b[2,2];
+                m_RHS[dofMap[N3]] += b[2,3];
+                m_RHS[dofMap[N4]] += b[2,4];
             end
         end
     end
@@ -269,6 +303,7 @@ function readJSON(filename::String)
         N2 = e + c + 1 + m_ny;
         N3 = e + c + m_ny;
         N4 = e + c - 1;
+    
         M[dofMap[N1]] += k[1,1];
         M[dofMap[N2]] += k[2,2];
         M[dofMap[N3]] += k[3,3];
@@ -456,21 +491,19 @@ function readJSON(filename::String)
     # -----------------------------------------------------
     
     # -----------------------------------------------------
-    
+    function main()
         
     # -----------------
     # Read File | JSON
     # -----------------
     filename = ARGS[1] * ".json";
     m_tol , m_materials_I, m_materials_F, m_numMat, m_nx, m_ny, m_nrefine, m_solver, c_RHS = readJSON(filename);
-    #println(varinfo())
     
     # ----------------
     # Read File | RAW
     # ----------------
     filename = ARGS[1] * ".raw";
     m_matID , m_nx, m_ny = readRAW(filename,m_nx,m_ny,m_nrefine);
-    #println(varinfo())
     
     # ------------------
     # Initial Variables
@@ -489,67 +522,49 @@ function readJSON(filename::String)
      # Conductivity Matrix Materials
      # ------------------------------
      m_k, m_B = matsCondMatrix(m_gdlNo, m_numMat, m_materials_I, m_materials_F);
-    #println(varinfo())
     
      # ----------------------
      # Degree of Freedom Map
      # ----------------------
      m_dofMap = get_dofmap(m_nx, m_ny, m_numElem);
-    #println(varinfo())
     
      # ---------------------------------
      # Compute RHS - Boundary or Domain
      # ---------------------------------
      # c_RHS Boundary = 0 || Domain = 1
      # axis 0 = X || axis 1 = Y
-     m_RHS   = computeRHS(m_dofMap, c_RHS, 0, m_k, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
-     m_RHS_2 = computeRHS(m_dofMap, c_RHS, 1, m_k, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+     m_RHS   = computeRHS(m_dofMap, c_RHS, 0, m_k, m_B, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+     m_RHS_2 = computeRHS(m_dofMap, c_RHS, 1, m_k, m_B, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
     
      # --------
      # SOLVERS
      # --------
-    println("----")
-    println("Direct Solver")
-        
-    K = spzeros(m_nGDL,m_nGDL);
-    #println(varinfo())
-    edof1 = 4; edof2 = 4;
-    for e=1:m_numElem
-        c = floor(UInt64, ((e-1)/m_ny) + 1);
-        k = m_k[:,:,m_materials_I[m_matID[e],1],1];
-    
-        N1 = e + c;
-        N2 = e + c + 1 + m_ny;
-        N3 = e + c + m_ny;
-        N4 = e + c - 1;
-        pElemDOFNum = [m_dofMap[N1] m_dofMap[N2] m_dofMap[N3] m_dofMap[N4]];
-    
-        for i=1:edof1
-            for j=1:edof2
-                K[pElemDOFNum[i],pElemDOFNum[j]] += k[i,j];
-            end
-        end
-    end
-    
-    tx = K\m_RHS;
-    ty = K\m_RHS_2;
+     if (m_solver == 0)       # Preconditioned Conjugate Gradient Solver
+         tx = pcg(m_dofMap, m_RHS,   m_k, m_tol, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+         ty = pcg(m_dofMap, m_RHS_2, m_k, m_tol, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+     elseif (m_solver == 1)   # Direct Solver
+         tx, ty = directsolver(m_dofMap, m_RHS, m_RHS_2, m_k, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+     end
      m_RHS = nothing; m_RHS_2 = nothing;
-    println(varinfo())
     
      # ---------------------------
      # Recover Temperature Values
      # ---------------------------
-     Tx = rcvTemp(tx[m_dofMap], c_RHS, 0, m_nx, m_ny, m_numNos);
-     Ty = rcvTemp(ty[m_dofMap], c_RHS, 1, m_nx, m_ny, m_numNos);
+    Tx = rcvTemp(tx[m_dofMap], c_RHS, 0, m_nx, m_ny, m_numNos);
+    Ty = rcvTemp(ty[m_dofMap], c_RHS, 1, m_nx, m_ny, m_numNos);
      tx = nothing; ty = nothing; m_dofMap = nothing;
     
      # ---------------------------
      # Compute Effective Property
      # ---------------------------
-     C = femEffective(Tx,Ty,m_B,m_nx,m_ny,m_numElem,m_matID,m_materials_I);
+    C = femEffective(Tx,Ty,m_B,m_nx,m_ny,m_numElem,m_matID,m_materials_I);
      println(C)
     
+    end
+    # -----------------------------------------------------
     
+    # -----------------------------------------------------
     
-    
+    # Start Program
+    @time main()
     
