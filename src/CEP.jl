@@ -5,56 +5,14 @@ using JSON
 using SparseArrays
 
 
+
 # Functions
 # -----------------------------------------------------
 
 # -----------------------------------------------------
-# Read NF file
-function readNF(filename::String)
+# Read JSON file
+function readJSON(filename::String)
 
-    println("----")
-    println("Read NF")
-    
-    fileID = open(filename)
-    
-    # initialize
-    m_tol = 0;
-    m_materials_I = zeros(UInt64,256);
-    m_materials_F = zeros(Float64,256);
-    m_numMat = 0;
-    
-    while !eof(fileID)
-        # Get file line
-        tline = readline(fileID);
-    
-        # Get rid of blank spaces
-        string = rstrip(tline);
-    
-        # Look for for tag strings
-        if string == "%TOL"
-            m_tol = parse(Float64,  readline(fileID));
-        elseif string == "%MATERIALS"
-            # tline =
-            m_numMat = parse(UInt64, readline(fileID));
-            for i=1:m_numMat
-                tline = readline(fileID);
-                aux = split(tline);
-                m_materials_I[parse(UInt64, aux[1])+1] = i;
-                m_materials_F[parse(UInt64, aux[1])+1] = parse(Float64, aux[2]);
-            end
-        elseif string =="%END"
-            break;
-        end
-    end
-    
-    return m_tol, m_materials_I, m_materials_F, m_numMat
-    end
-    # -----------------------------------------------------
-    
-    # -----------------------------------------------------
-    # Read JSON file
-    function readJSON(filename::String)
-    
     println("----")
     println("Read JSON")
     
@@ -108,10 +66,13 @@ function readNF(filename::String)
     
     # -----------------------------------------------------
     # Conductivity Matrix Materials
-    function matsCondMatrix()
+    function matsCondMatrix(m_gdlNo::Int,m_numMat::Int,m_materials_I::Array{UInt16,1},m_materials_F::Array{Float64,1})
     
     println("----")
     println("Initialize Variables")
+    
+    m_k = zeros(m_gdlNo*4,m_gdlNo*4,m_numMat);
+    m_B = zeros(m_gdlNo*2,m_gdlNo*4,m_numMat);
     
     i = 0;
     for prop in m_materials_F[m_materials_I.!=0]
@@ -150,8 +111,8 @@ function readNF(filename::String)
         for j = 1:2
             s = PG[1,j];
             wy = w[1,j];
-            B,J = Q4BMatrix(r, s, x, y)
-            dJ = det(J)
+            B,J = Q4BMatrix(r, s, x, y);
+            dJ = det(J);
             k  += B'*C*B*dJ*wx*wy;
             BC += C*B*dJ*wx*wy;
         end
@@ -193,7 +154,7 @@ function readNF(filename::String)
     
     # -----------------------------------------------------
     # Degree of Freedom Map
-    function get_dofmap()
+    function get_dofmap(m_nx::Int, m_ny::Int, m_numElem::Int)
     
     println("----")
     println("Degree of Freedom Map")
@@ -212,7 +173,7 @@ function readNF(filename::String)
     # -----------------------------------------------------
     # Direct Solver
     # [K] 64 bits * m_nGDL * m_nGDL 
-    function directsolver(dofMap::Array{UInt64,1}, RHS::Array{Float64,1}, RHS_2::Array{Float64,1})
+    function directsolver(dofMap::Array{UInt64,1}, RHS::Array{Float64,1}, RHS_2::Array{Float64,1}, m_k::Array{Float64,3}, m_nGDL::Int, m_nx::Int, m_ny::Int, m_numElem::Int, m_matID::Array{UInt64,1} ,m_materials_I::Array{UInt16,1})
         
     println("----")
     println("Direct Solver")
@@ -247,7 +208,7 @@ function readNF(filename::String)
     # Compute RHS
     # c_RHS Boundary = 0 || Domain = 1
     # axis x = 0 || y = 1
-    function computeRHS(dofMap::Array{UInt64,1}, c_RHS::Int64, axis::Int64)
+    function computeRHS(dofMap::Array{UInt64,1}, c_RHS::Int, axis::Int, m_k::Array{Float64,3}, m_nGDL::Int, m_nx::Int, m_ny::Int, m_numElem::Int, m_matID::Array{UInt64,1} ,m_materials_I::Array{UInt16,1})
     
     println("----")
     println("Compute RHS")
@@ -323,8 +284,8 @@ function readNF(filename::String)
     
     # -----------------------------------------------------
     # Pre Conjugate Gradient Solver
-    function pcg(dofMap::Array{UInt64,1}, r::Array{Float64,1})
-       
+    function pcg(dofMap::Array{UInt64,1}, r::Array{Float64,1}, m_k::Array{Float64,3}, m_tol::Float64, m_nGDL::Int, m_nx::Int, m_ny::Int, m_numElem::Int, m_matID::Array{UInt64,1}, m_materials_I::Array{UInt16,1})
+    
     println("----")
     println("PCG Solver")
     
@@ -411,20 +372,20 @@ function readNF(filename::String)
         q_temp = nothing;
     
         alfa = delta_new/(transpose(d)*q);
-        x = x + d*alfa;
+        x += d*alfa;
         #    if rem(ii,50) == 0
         #       r = b - A*x;
         #    else
         #       r = r - alfa*q;
         #    end
-        r = r - q*alfa;
+        r -= q*alfa;
+        q = nothing;
         s = M.\r;
         delta_old = delta_new;
         delta_new = transpose(r)*s;
         beta = delta_new/delta_old;
         d = s + d*beta;
         ii += 1;
-    
         s = nothing;
     
     end
@@ -437,7 +398,7 @@ function readNF(filename::String)
     # -----------------------------------------------------
     # Recover Temperature Values
     # axis x = 0 || y = 1
-    function rcvTemp( T1::Array{Float64,1}, c_RHS::Int, axis::Int)
+    function rcvTemp( T1::Array{Float64,1}, c_RHS::Int, axis::Int, m_nx::Int, m_ny::Int, m_numNos::Int)
     
     println("----")
     println("Recover Temperature Values")
@@ -474,7 +435,7 @@ function readNF(filename::String)
     # -----------------------------------------------------
     # Compute Flux - FEM
     # Effective property
-    function femEffective(Tx::Array{Float64,1},Ty::Array{Float64,1})
+    function femEffective(Tx::Array{Float64,1},Ty::Array{Float64,1}, m_B::Array{Float64,3}, m_nx::Int, m_ny::Int, m_numElem::Int, m_matID::Array{UInt64,1}, m_materials_I::Array{UInt16,1})
     
     println("----")
     println("Compute Effective Property")
@@ -510,26 +471,27 @@ function readNF(filename::String)
         
     println("----")
     println("Memory Estimate")
-    # m_matID = 8 bits * m_numElem
+    # m_matID = 64 bits * m_numElem
     # m_dofMap = 64 bits * m_numNos
     # m_RHS, m_RHS_2 = 2 * 64 bits * m_nGDL
-    # Direct Solver
-    # K = 64 bits * m_numElem * 16 (rough sparse estimative)
-    # PCG
-    # 
-    mem = 0;
+    # PCG - m_solver == 0
+    # M r d x q = 5 * 64 bits * m_nGDL
+    # Direct Solver - m_solver == 1
+    # K = 64 bits * 16 * m_numElem (rough sparse estimative)
+    
+    mem = 125.0;
     if (m_solver == 0)
-        mem = 1
+        mem += (64*m_numElem + 64*m_numNos + 2*64*m_nGDL + 6*64*m_nGDL)/8/1000/1000;
     elseif (m_solver == 1)
-        mem = 1
+        mem += (64*m_numElem + 64*m_numNos + 2*64*m_nGDL + 18*64*m_numElem)/8/1000/1000;
     end
-    println(mem)
+    @printf "%.2f MB\n" mem
     
     end
     # -----------------------------------------------------
     
     # -----------------------------------------------------
-    @time begin
+    function main()
         
     # -----------------
     # Read File | JSON
@@ -546,62 +508,63 @@ function readNF(filename::String)
     # ------------------
     # Initial Variables
     # ------------------
-    m_gdlNo = 1;
-    m_numNos = (m_nx+1)*(m_ny+1);
-    m_numElem = (m_nx)*(m_ny);
-    m_nGDL = m_gdlNo*m_nx*m_ny;
-    m_k = zeros(m_gdlNo*4,m_gdlNo*4,m_numMat);
-    m_B = zeros(m_gdlNo*2,m_gdlNo*4,m_numMat);
+     m_gdlNo = 1;
+     m_numNos = (m_nx+1)*(m_ny+1);
+     m_numElem = (m_nx)*(m_ny);
+     m_nGDL = m_gdlNo*m_nx*m_ny;
     
-    # ----------------
-    # Memory Estimate
-    # ----------------
-    memEstimate(m_numNos, m_numElem, m_nGDL, m_solver);
+     # ----------------
+     # Memory Estimate
+     # ----------------
+     memEstimate(m_numNos, m_numElem, m_nGDL, m_solver);
     
-    # ------------------------------
-    # Conductivity Matrix Materials
-    # ------------------------------
-    m_k, m_B = matsCondMatrix();
+     # ------------------------------
+     # Conductivity Matrix Materials
+     # ------------------------------
+     m_k, m_B = matsCondMatrix(m_gdlNo, m_numMat, m_materials_I, m_materials_F);
     
-    # ----------------------
-    # Degree of Freedom Map
-    # ----------------------
-    m_dofMap = get_dofmap();
+     # ----------------------
+     # Degree of Freedom Map
+     # ----------------------
+     m_dofMap = get_dofmap(m_nx, m_ny, m_numElem);
     
-    # ---------------------------------
-    # Compute RHS - Boundary or Domain
-    # ---------------------------------
-    # c_RHS Boundary = 0 || Domain = 1
-    # axis 0 = X || axis 1 = Y
-    m_RHS   = computeRHS(m_dofMap, c_RHS, 0);
-    m_RHS_2 = computeRHS(m_dofMap, c_RHS, 1);
+     # ---------------------------------
+     # Compute RHS - Boundary or Domain
+     # ---------------------------------
+     # c_RHS Boundary = 0 || Domain = 1
+     # axis 0 = X || axis 1 = Y
+     m_RHS   = computeRHS(m_dofMap, c_RHS, 0, m_k, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+     m_RHS_2 = computeRHS(m_dofMap, c_RHS, 1, m_k, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
     
-    # --------
-    # SOLVERS
-    # --------
-    # Preconditioned Conjugate Gradient Solver and Direct Solver
-    if (m_solver == 0)
-        tx = pcg(m_dofMap, m_RHS);
-        ty = pcg(m_dofMap, m_RHS_2);
-    elseif (m_solver == 1)
-        tx, ty = directsolver(m_dofMap, m_RHS, m_RHS_2);
-    end
-    m_RHS = nothing; m_RHS_2 = nothing;
+     # --------
+     # SOLVERS
+     # --------
+     if (m_solver == 0)       # Preconditioned Conjugate Gradient Solver
+         tx = pcg(m_dofMap, m_RHS,   m_k, m_tol, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+         ty = pcg(m_dofMap, m_RHS_2, m_k, m_tol, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+     elseif (m_solver == 1)   # Direct Solver
+         tx, ty = directsolver(m_dofMap, m_RHS, m_RHS_2, m_k, m_nGDL, m_nx, m_ny, m_numElem, m_matID, m_materials_I);
+     end
+     m_RHS = nothing; m_RHS_2 = nothing;
     
-    # ---------------------------
-    # Recover Temperature Values
-    # ---------------------------
-    # Tx 64 bits * m_nGDL || Ty 64 bits * m_nGDL
-    Tx = rcvTemp(tx[m_dofMap], c_RHS, 0);
-    Ty = rcvTemp(ty[m_dofMap], c_RHS, 1);
-    tx = nothing; ty = nothing; m_dofMap = nothing;
+     # ---------------------------
+     # Recover Temperature Values
+     # ---------------------------
+     Tx = rcvTemp(tx[m_dofMap], c_RHS, 0, m_nx, m_ny, m_numNos);
+     Ty = rcvTemp(ty[m_dofMap], c_RHS, 1, m_nx, m_ny, m_numNos);
+     tx = nothing; ty = nothing; m_dofMap = nothing;
     
-    # ---------------------------
-    # Compute Effective Property
-    # ---------------------------
-    C = femEffective(Tx,Ty);
-    print(C)
+     # ---------------------------
+     # Compute Effective Property
+     # ---------------------------
+     C = femEffective(Tx,Ty,m_B,m_nx,m_ny,m_numElem,m_matID,m_materials_I);
+     println(C)
     
     end
+    # -----------------------------------------------------
     
+    # -----------------------------------------------------
+    
+    # Start Program
+    main()
     
