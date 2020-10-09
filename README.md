@@ -139,7 +139,7 @@ A second input file is necessary for `pfem4ec.jl` to be run, containing specific
 
 ## Example usage
 
-For now, `pfem4ec.jl` output consists on feedback of the analysis that is printed on the terminal that called the program. Users are provided with an estimation of allocated memory, convergence metrics for the PCG numerical method, a stamp for each function called by `pfem4ec` along the process and, finally, the resulting effective homogenized conductivity matrix. <a href="#figure2">Figure 2</a> shows the output for the 5x5 example model adopted in our [user guide](https://github.com/JuliaIO/JSON.jl).
+For now, `pfem4ec.jl` output consists on feedback of the analysis that is printed on the terminal that called the program. Users are provided with an estimation of allocated memory, convergence metrics for the PCG numerical method, a stamp for each function called by `pfem4ec` along the process and, finally, the resulting effective homogenized conductivity matrix. <a href="#figure2">Figure 2</a> shows the output for the 5x5 example model adopted in our [user guide](https://github.com/LCC-UFF/pfem4ec/blob/master/docs/user_guide_pfem.pdf).
 
 <a name="figure2"><div id="figure2"></div></a>
 <p align="center">
