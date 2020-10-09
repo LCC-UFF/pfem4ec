@@ -1,5 +1,10 @@
 """
-pfem4ec is a fast in-core solver to compute effective electrical conductivity of heterogeneous materials from raw images using Pixel-Based Finite Element Method (PFEM). 
+pfem4ec
+
+pfem4ec is a fast in-core solver to compute effective electrical conductivity of heterogeneous 
+materials from raw images using Pixel-Based Finite Element Method (PFEM). 
+
+See https://github.com/LCC-UFF/pfem4ec/tree/master/docs for documentation.
 """
 
 # Packages
@@ -7,7 +12,12 @@ using JSON
 using SparseArrays
 using LinearAlgebra
 
-# Static Model data struct:
+# Immutable Model data struct
+"""
+    Immutable Model data struct
+   
+    The struct covering the fundamental data from JSON
+"""
 struct Model
     m_nx::UInt64;
     m_ny::UInt64;
@@ -31,6 +41,11 @@ end
 # Read JSON file:
 """
     readJSON!(_filename::String)
+
+    Containing specific parameters to guide the FEM analysis. 
+
+    image_dimensions, refinement, type_of_rhs, type_of_solver, solver_tolerance, 
+    number_of_iterations, number_of_materials, properties_of_materials
 """
 function readJSON!(_filename::String)
     println(".Read JSON!")
@@ -77,6 +92,10 @@ end
 # Read RAW file:
 """
     readRAW!(_model::Model, _elemMatMap::Array{UInt16,1}, _filename::String)
+
+    The first input is a binary RAW file, that represents images of the microscale 
+    of a heterogeneous material with 8-bit data (integer values within the range 0 to 255).     
+
 """
 function readRAW!(_model::Model, _elemMatMap::Array{UInt16,1}, _filename::String)
     println(".Read RAW!");
@@ -103,6 +122,9 @@ end
 # Estimate memory consuption:
 """
     estimateMemory(_model::Model)
+
+    The amount of RAM used depends on the size of the problem and the type of solver chosen.
+
 """
 function estimateMemory(_model::Model)
     println(".Estimate memory!");
@@ -124,6 +146,9 @@ end
 # Compute the element conductivity matrix for each material:
 """
     elementConductivityMatrices!(_model::Model, _K::Array{Float64,3}, _B::Array{Float64,3})
+
+    One of pfem4ec's differentials is the fact that it does not need to calculate all the elements of the model, 
+    only the elements with different materials. This saves RAM and CPU usage.
 """
 function elementConductivityMatrices!(_model::Model, _K::Array{Float64,3}, _B::Array{Float64,3})
     println(".Compute each element conductivity matrix!");
@@ -138,6 +163,9 @@ end
 # Element Q4 Conductivity - FEM:
 """
     Q4ElementConductivity(_elemProps::Float64)
+
+    Analytical solutions for pixel-based finite element method 
+    (Q4 quadrilateral element that has four nodes)
 """
 function Q4ElementConductivity(_elemProps::Float64)
     # Initializations:
@@ -158,6 +186,10 @@ end
 # Generate the Degree of Freedom Map:
 """
     generateDOFMap!(_model::Model, _DOFMap::Array{UInt64,1})
+
+    This function create degrees of freedom for the model
+    top to bottom and left to right
+    The total number of nodes is (nx+1)*(ny+1)
 """
 function generateDOFMap!(_model::Model, _DOFMap::Array{UInt64,1})
     println(".Generate the Map of DOFs (Degrees of Freedom)!");
@@ -171,6 +203,9 @@ end
 # Compute the RHS: Boundary or Domain, rhsType: Boundary = 0 || Domain = 1, axis 0 = X || axis 1 = Y
 """
     computeRHS!(_model::Model, _RHS::Array{Float64,1}, _axis::Int, _K::Array{Float64,3}, _B::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
+
+    There are two different boundaries conductions: Boundary or Domain
+
 """
 function computeRHS!(_model::Model, _RHS::Array{Float64,1}, _axis::Int, _K::Array{Float64,3}, _B::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
     println(".Compute RHS!");
@@ -215,6 +250,10 @@ end
 # Direct Solver: [K] 64 bits * _numDOFs * _numDOFs 
 """
     directMethod!(_model::Model, _x1::Array{Float64,1}, _x2::Array{Float64,1}, _RHS1::Array{Float64,1}, _RHS2::Array{Float64,1}, _K::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
+
+    For the direct solver it is necessary to calculate the stiffness only once (saving the CPU usage), 
+    however for large models, even in sparse format, a lot of RAM is used.
+
 """
 function directMethod!(_model::Model, _x1::Array{Float64,1}, _x2::Array{Float64,1}, _RHS1::Array{Float64,1}, _RHS2::Array{Float64,1}, _K::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
     println(".Direct Solver!");
@@ -240,6 +279,11 @@ end
 # Jacobi Preconditioner: assembly || M
 """
     jacobiPrecond!(_model::Model, _M::Array{Float64,1}, _K::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
+
+    The Conjugated Gradients method in its direct form, however, presents problems of numerical instability.
+    To alleviate the problem, the preconditioner M is used.
+    Jacobi's preconditioner is the diagonal matrix of stiffness. 
+
 """
 function jacobiPrecond!(_model::Model, _M::Array{Float64,1}, _K::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
     println(".Jacobi Preconditioner!");
@@ -259,6 +303,12 @@ end
 # Preconditioned Conjugate Gradient Method:
 """
     pcg!(_model::Model, _x::Array{Float64,1}, _r::Array{Float64,1}, _M::Array{Float64,1}, _K::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
+
+    The conjugate gradient method is an algorithm for the numerical solution of
+    particular systems of linear equations, those whose matrix is defined symmetric and positive.
+
+    This Preconditioned Conjugate Gradient method is based in [Shewchuk algorithm](https://www.cs.cmu.edu/~quake-papers/painless-conjugate-gradient.pdf)
+
 """
 function pcg!(_model::Model, _x::Array{Float64,1}, _r::Array{Float64,1}, _M::Array{Float64,1}, _K::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
     println(".PCG Solver!");
@@ -310,6 +360,9 @@ end
 # Compute Flux-FEM Effective property:
 """
     femEffective(_model::Model, _T::Array{Float64,1}, _axis::Int, _B::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
+
+    After solving the system of equations, this function calculates the effective property of the material.
+
 """
 function femEffective(_model::Model, _T::Array{Float64,1}, _axis::Int, _B::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
     println(".Compute Effective Property!");
@@ -361,6 +414,9 @@ end
 # Compute Flux-FEM Effective property:
 """
     femEffective(_model::Model, _Tx::Array{Float64,1}, _Ty::Array{Float64,1}, _B::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
+
+    After solving the system of equations, this function calculates the effective property of the material.
+
 """
 function femEffective(_model::Model, _Tx::Array{Float64,1}, _Ty::Array{Float64,1}, _B::Array{Float64,3}, _DOFMap::Array{UInt64,1}, _elemMatMap::Array{UInt16,1})
     println(".Compute Effective Property!");
@@ -413,6 +469,11 @@ end
 # Main function
 """
     pfem4ec(_arg)
+
+    The main function calls all the other functions:
+    read files, create model, generate boundary condictions,
+    solve problem, compute effective properties
+    
 """
 function pfem4ec(_arg)
     # Read JSON File and build the Model data structure: 
