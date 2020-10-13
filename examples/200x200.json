@@ -15,11 +15,11 @@
     "properties_of_materials": [
         [
             0,
-            0
+            1.0
         ],
         [
             255,
-            0
+            10.0
         ]
     ],
     "volume_fraction": [
